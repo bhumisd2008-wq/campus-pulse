@@ -6,14 +6,10 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  Clock,
   MapPin,
-  Tag,
   Plus,
   X,
   CalendarCheck,
-  AlertCircle,
-  Eye,
 } from "lucide-react";
 import { Notice } from "@/types";
 import { getNotices } from "@/lib/services/notices";
@@ -47,32 +43,34 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; dot: string }>
 };
 
 export default function CalendarPage() {
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(10); // 0-indexed
+  const [currentYear, setCurrentYear] = useState(() => getNowInIST().getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(() => getNowInIST().getMonth()); // 0-indexed
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
 
-  useEffect(() => {
-    const istNow = getNowInIST();
-    setCurrentYear(istNow.getFullYear());
-    setCurrentMonth(istNow.getMonth());
-  }, []);
-
   // Load notices from database/storage
   useEffect(() => {
+    let isMounted = true;
     async function fetchCalendarData() {
       try {
-        setLoading(true);
         const data = await getNotices();
-        setNotices(data);
+        if (isMounted) {
+          setNotices(data);
+        }
       } catch (err) {
         console.error("Error loading calendar notices:", err);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
-    fetchCalendarData();
+    void fetchCalendarData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Compute calendar days
@@ -172,7 +170,14 @@ export default function CalendarPage() {
             <CalendarIcon className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-slate-900">Academic Calendar</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold text-slate-900">Academic Calendar</h1>
+              {loading && (
+                <span className="text-[10px] font-semibold text-violet-700 bg-violet-100 px-2 py-0.5 rounded-full animate-pulse">
+                  Syncing...
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500">
               Real-time schedule of examinations, workshops, deadlines and campus events
             </p>

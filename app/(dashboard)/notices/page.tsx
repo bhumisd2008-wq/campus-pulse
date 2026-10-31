@@ -5,27 +5,19 @@ import Link from "next/link";
 import {
   Bell,
   Search,
-  Filter,
   Plus,
   Calendar,
-  Clock,
   MapPin,
-  Tag,
   Eye,
   Edit2,
   Trash2,
   X,
   AlertCircle,
   CalendarCheck,
-  CheckCircle2,
   SlidersHorizontal,
   ChevronDown,
   ArrowUpDown,
-  BookOpen,
-  Trophy,
-  GraduationCap,
-  Sparkles,
-  Zap,
+  RefreshCw,
 } from "lucide-react";
 import { Notice } from "@/types";
 import {
@@ -41,7 +33,6 @@ import {
   isTomorrowInIST,
   isThisWeekInIST,
   isThisMonthInIST,
-  computeEventStatus,
   computeRegistrationStatus,
 } from "@/lib/utils/dates";
 import { useToast } from "@/context/toast-context";
@@ -172,8 +163,9 @@ export default function NoticesPage() {
       setNotices((prev) => prev.filter((n) => n.id !== deletingId));
       success("Notice Deleted", "The announcement has been permanently removed.");
       setDeletingId(null);
-    } catch (err: any) {
-      toastError("Delete Failed", err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete notice";
+      toastError("Delete Failed", msg);
     }
   };
 
@@ -199,8 +191,9 @@ export default function NoticesPage() {
         success("Updated Successfully", `Changes to "${updated.title}" saved.`);
         setEditingNotice(null);
       }
-    } catch (err: any) {
-      toastError("Update Failed", err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to update notice";
+      toastError("Update Failed", msg);
     } finally {
       setUpdating(false);
     }
@@ -223,13 +216,23 @@ export default function NoticesPage() {
           </div>
         </div>
 
-        <Link
-          href="/notices/new"
-          className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add Notice</span>
-        </Link>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={loadNotices}
+            disabled={loading}
+            title="Refresh Notices"
+            className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <Link
+            href="/notices/new"
+            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Notice</span>
+          </Link>
+        </div>
       </div>
 
       <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -261,7 +264,7 @@ export default function NoticesPage() {
               <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
+                onChange={(e) => setSortBy(e.target.value as "upcoming" | "newest" | "oldest" | "deadline")}
                 className="pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
               >
                 <option value="upcoming">Upcoming Event First</option>
@@ -429,7 +432,6 @@ export default function NoticesPage() {
         ) : (
           <div className="space-y-4">
             {filteredNotices.map((notice) => {
-              const eventStatus = computeEventStatus(notice.event_date, notice.event_time);
               const regStatus = computeRegistrationStatus(notice.registration_deadline);
               const isToday = isTodayInIST(notice.event_date);
 
