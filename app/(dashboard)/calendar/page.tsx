@@ -47,12 +47,17 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; dot: string }>
 };
 
 export default function CalendarPage() {
-  const istNow = getNowInIST();
-  const [currentYear, setCurrentYear] = useState(istNow.getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(istNow.getMonth()); // 0-indexed
+  const [currentYear, setCurrentYear] = useState(2026);
+  const [currentMonth, setCurrentMonth] = useState(10); // 0-indexed
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+
+  useEffect(() => {
+    const istNow = getNowInIST();
+    setCurrentYear(istNow.getFullYear());
+    setCurrentMonth(istNow.getMonth());
+  }, []);
 
   // Load notices from database/storage
   useEffect(() => {
@@ -153,8 +158,9 @@ export default function CalendarPage() {
   };
 
   const handleJumpToToday = () => {
-    setCurrentMonth(istNow.getMonth());
-    setCurrentYear(istNow.getFullYear());
+    const now = getNowInIST();
+    setCurrentMonth(now.getMonth());
+    setCurrentYear(now.getFullYear());
   };
 
   return (
@@ -244,24 +250,22 @@ export default function CalendarPage() {
               return (
                 <div
                   key={idx}
-                  className={`min-h-[110px] sm:min-h-[130px] p-2 flex flex-col justify-between transition-colors ${
-                    !d.isCurrentMonth
+                  className={`min-h-[110px] sm:min-h-[130px] p-2 flex flex-col justify-between transition-colors ${!d.isCurrentMonth
                       ? "bg-slate-50/30 text-slate-400"
                       : isToday
-                      ? "bg-amber-50/30"
-                      : "bg-white hover:bg-slate-50/50"
-                  }`}
+                        ? "bg-amber-50/30"
+                        : "bg-white hover:bg-slate-50/50"
+                    }`}
                 >
                   {/* Date Number */}
                   <div className="flex items-center justify-between">
                     <span
-                      className={`text-xs font-bold h-6 w-6 flex items-center justify-center rounded-full ${
-                        isToday
+                      className={`text-xs font-bold h-6 w-6 flex items-center justify-center rounded-full ${isToday
                           ? "bg-amber-500 text-white shadow-xs"
                           : d.isCurrentMonth
-                          ? "text-slate-800"
-                          : "text-slate-400"
-                      }`}
+                            ? "text-slate-800"
+                            : "text-slate-400"
+                        }`}
                     >
                       {d.day}
                     </span>

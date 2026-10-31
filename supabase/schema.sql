@@ -124,3 +124,4 @@ VALUES
     'upcoming',
     'Annual Campus Hackathon 2026 will be held on Nov 20. Team registration closes Nov 10.'
   );
+

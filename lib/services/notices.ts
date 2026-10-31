@@ -338,3 +338,4 @@ export async function deleteNotice(id: string): Promise<boolean> {
   saveLocalNotices(updated);
   return true;
 }
+

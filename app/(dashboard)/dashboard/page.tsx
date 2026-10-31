@@ -34,15 +34,19 @@ export default function DashboardPage() {
 
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [todayFormatted, setTodayFormatted] = useState<string>("");
 
-  // Format today's date in IST
-  const todayFormatted = getNowInIST().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: "Asia/Kolkata",
-  });
+  useEffect(() => {
+    setTodayFormatted(
+      getNowInIST().toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "Asia/Kolkata",
+      })
+    );
+  }, []);
 
   useEffect(() => {
     async function fetchStats() {
@@ -77,7 +81,7 @@ export default function DashboardPage() {
           <h1 className="text-xl font-bold text-slate-900">Academic Overview</h1>
           <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5 text-blue-600" />
-            {todayFormatted} (IST)
+            {todayFormatted || "Today"} (IST)
           </p>
         </div>
 
