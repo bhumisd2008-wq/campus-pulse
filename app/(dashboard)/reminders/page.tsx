@@ -49,35 +49,48 @@ export default function RemindersPage() {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
 
   useEffect(() => {
+    let isMounted = true;
+
     if (typeof window !== "undefined" && "Notification" in window) {
-      setNotificationPermission(Notification.permission);
+      const perm = Notification.permission;
+      Promise.resolve().then(() => {
+        if (isMounted) {
+          setNotificationPermission(perm);
+        }
+      });
     }
 
     async function loadData() {
       try {
-        setLoading(true);
         const data = await getNotices();
+        if (!isMounted) return;
         setNotices(data);
 
         // Load custom reminders
         const rawCustom = localStorage.getItem(LOCAL_REMINDERS_KEY);
-        if (rawCustom) {
+        if (rawCustom && isMounted) {
           setCustomReminders(JSON.parse(rawCustom));
         }
 
         // Load disabled notice reminders
         const rawDisabled = localStorage.getItem("campus_pulse_disabled_notice_reminders");
-        if (rawDisabled) {
+        if (rawDisabled && isMounted) {
           setDisabledNoticeIds(new Set(JSON.parse(rawDisabled)));
         }
       } catch (err) {
         console.error("Error loading reminders:", err);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
-    loadData();
+    void loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Request browser notification permission

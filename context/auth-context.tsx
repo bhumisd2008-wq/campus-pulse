@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { UserProfile } from "@/types";
 import { supabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/services/notices";
@@ -33,6 +33,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const isSupa = isSupabaseConfigured();
 
+  const loadLocalUser = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = localStorage.getItem(LOCAL_USER_KEY);
+      if (stored) {
+        setUser(JSON.parse(stored));
+      } else {
+        localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(DEFAULT_GUEST_USER));
+        setUser(DEFAULT_GUEST_USER);
+      }
+    } catch {
+      setUser(DEFAULT_GUEST_USER);
+    }
+  }, []);
+
   useEffect(() => {
     async function initAuth() {
       if (isSupa) {
@@ -54,7 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
           }
 
-          // Subscribe to auth changes
           const {
             data: { subscription },
           } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -88,23 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     initAuth();
-  }, [isSupa]);
-
-  function loadLocalUser() {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem(LOCAL_USER_KEY);
-      if (stored) {
-        setUser(JSON.parse(stored));
-      } else {
-        // Pre-populate with realistic student demo
-        localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(DEFAULT_GUEST_USER));
-        setUser(DEFAULT_GUEST_USER);
-      }
-    } catch {
-      setUser(DEFAULT_GUEST_USER);
-    }
-  }
+  }, [isSupa, loadLocalUser]);
 
   const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
     if (isSupa) {
@@ -112,12 +110,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) return { error: error.message };
         return {};
-      } catch (err: any) {
-        return { error: err.message || "Failed to sign in." };
+      } catch (err: unknown) {
+        return { error: (err as Error).message || "Failed to sign in." };
       }
     }
 
-    // Local mode mock auth
     if (!email || !password) return { error: "Please enter email and password" };
     const localUser: UserProfile = {
       ...DEFAULT_GUEST_USER,
@@ -145,12 +142,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         if (error) return { error: error.message };
         return {};
-      } catch (err: any) {
-        return { error: err.message || "Failed to sign up." };
+      } catch (err: unknown) {
+        return { error: (err as Error).message || "Failed to sign up." };
       }
     }
 
-    // Local mode mock signup
     if (!email || !password || !fullName) return { error: "All fields are required" };
     const newUser: UserProfile = {
       id: `local-user-${Date.now()}`,

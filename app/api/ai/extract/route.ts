@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { ExtractedNoticeSchema, NOTICE_CATEGORIES } from "@/lib/schemas/notice";
 
-export const runtime = "nodejs";
-
 const SYSTEM_INSTRUCTION = `
 You are Campus Pulse AI, a highly accurate academic information extraction engine.
 Your task is to extract structured details from unstructured college/campus notices (such as WhatsApp circulars, department emails, exam alerts, workshop announcements).
@@ -70,7 +68,6 @@ export async function POST(req: NextRequest) {
       throw new Error("Empty response received from Gemini API.");
     }
 
-    // Clean JSON formatting if enclosed in code blocks
     let cleanJson = responseText;
     if (cleanJson.startsWith("```json")) {
       cleanJson = cleanJson.replace(/^```json\s*/i, "").replace(/\s*```$/i, "");
@@ -80,12 +77,10 @@ export async function POST(req: NextRequest) {
 
     const parsedJson = JSON.parse(cleanJson);
 
-    // Validate using Zod schema
     const validationResult = ExtractedNoticeSchema.safeParse(parsedJson);
 
     if (!validationResult.success) {
       console.warn("Zod validation warning on AI output:", validationResult.error.issues);
-      // Fallback with sanitized fields
       const sanitized = {
         title: parsedJson.title || "Campus Notice",
         description: parsedJson.description || text.slice(0, 180),
@@ -107,12 +102,13 @@ export async function POST(req: NextRequest) {
       success: true,
       data: validationResult.data,
     });
-  } catch (error: any) {
-    console.error("AI Notice Extraction Error:", error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("AI Notice Extraction Error:", err);
     return NextResponse.json(
       {
-        error: error.message || "Failed to process notice with Gemini AI.",
-        details: error.toString(),
+        error: err.message || "Failed to process notice with Gemini AI.",
+        details: err.toString(),
       },
       { status: 500 }
     );

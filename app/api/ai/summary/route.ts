@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { Notice } from "@/types";
 
-export const runtime = "nodejs";
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -39,7 +37,6 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Format notices for prompt
     const formattedList = notices.map((n, i) => {
       return `${i + 1}. [${n.category}] ${n.title}
    Details: ${n.description}
@@ -100,12 +97,13 @@ Respond strictly with valid JSON with this exact structure:
       success: true,
       data: parsed,
     });
-  } catch (error: any) {
-    console.error("AI Summary Generation Error:", error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("AI Summary Generation Error:", err);
     return NextResponse.json(
       {
-        error: error.message || "Failed to generate weekly summary.",
-        details: error.toString(),
+        error: err.message || "Failed to generate weekly summary.",
+        details: err.toString(),
       },
       { status: 500 }
     );

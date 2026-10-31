@@ -71,11 +71,11 @@ export default function NoticesPage() {
 
   // Load notices from service
   const loadNotices = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
       const data = await getNotices();
       setNotices(data);
-    } catch (err: any) {
+    } catch {
       toastError("Load Error", "Failed to retrieve notices.");
     } finally {
       setLoading(false);
@@ -83,8 +83,24 @@ export default function NoticesPage() {
   };
 
   useEffect(() => {
-    loadNotices();
-  }, []);
+    let mounted = true;
+    getNotices()
+      .then((data) => {
+        if (mounted) {
+          setNotices(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          toastError("Load Error", "Failed to retrieve notices.");
+          setLoading(false);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [toastError]);
 
   // Filter & Sort Logic
   const filteredNotices = useMemo(() => {
