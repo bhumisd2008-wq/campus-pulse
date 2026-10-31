@@ -1,312 +1,395 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Sparkles,
   Zap,
-  Clock,
-  Bell,
   Calendar,
-  CheckSquare,
-  TrendingUp,
   AlertTriangle,
-  Key,
-  Play,
-  ChevronRight,
   BookOpen,
-  Award,
-  Activity,
-  Info,
+  Trophy,
+  GraduationCap,
+  CheckCircle2,
+  Clock,
+  Loader2,
   RefreshCw,
+  Info,
+  Key,
+  CalendarCheck,
+  MapPin,
+  ListChecks,
 } from "lucide-react";
+import { Notice, WeeklySummaryResult } from "@/types";
+import { getNotices } from "@/lib/services/notices";
+import { formatFriendlyDate, getNowInIST } from "@/lib/utils/dates";
+import { useToast } from "@/context/toast-context";
 
-const PAST_SUMMARIES = [
-  {
-    week: "Oct 21 – Oct 27, 2026",
-    generatedAt: "Monday, Oct 28 • 07:00 AM",
-    highlights: [
-      "Mid-term examination datesheet released for all departments — check your respective slots.",
-      "Annual Hackathon 2026 registrations opened; CS students encouraged to form teams by Oct 30.",
-      "Library reading rooms extended to 24/7 mode starting exam week.",
-      "Fee payment deadline approaching on November 5th — ensure payment via portal.",
-    ],
-    stats: { notices: 12, events: 5, deadlines: 3 },
-    urgentItem:
-      "Mid-term examinations begin Nov 2nd — check your schedule immediately.",
-  },
-  {
-    week: "Oct 14 – Oct 20, 2026",
-    generatedAt: "Monday, Oct 21 • 07:00 AM",
-    highlights: [
-      "University Sports Day registration opened — sign up for at least one event.",
-      "National Scholarship Portal open until Nov 15; gather required documents.",
-      "Convocation ceremony details published — final year students collect gowns.",
-      "AWS Cloud workshop confirmed for Nov 3; limited seats, register early.",
-    ],
-    stats: { notices: 9, events: 4, deadlines: 2 },
-    urgentItem:
-      "Convocation gown collection: Administrative block, 10AM-4PM this week only.",
-  },
-];
-
-const CAPABILITIES = [
-  {
-    icon: Bell,
-    title: "Announcements Digest",
-    description: "Summarizes all published notices into top 5 critical action items.",
-    color: "text-blue-600 bg-blue-50",
-    statusColor: "text-amber-700 bg-amber-100",
-  },
-  {
-    icon: Calendar,
-    title: "Event Timeline Summary",
-    description: "Compiles upcoming events in chronological order with venue details.",
-    color: "text-violet-600 bg-violet-50",
-    statusColor: "text-amber-700 bg-amber-100",
-  },
-  {
-    icon: CheckSquare,
-    title: "Deadline Extraction",
-    description: "Automatically identifies submission dates and deadlines from notice text.",
-    color: "text-emerald-600 bg-emerald-50",
-    statusColor: "text-amber-700 bg-amber-100",
-  },
-  {
-    icon: TrendingUp,
-    title: "Priority Ranking",
-    description: "Ranks items by urgency using AI to surface what needs attention first.",
-    color: "text-rose-600 bg-rose-50",
-    statusColor: "text-amber-700 bg-amber-100",
-  },
-];
+const SAVED_SUMMARY_KEY = "campus_pulse_latest_ai_summary_v1";
 
 export default function SummaryPage() {
-  const [generating, setGenerating] = useState(false);
-  const [showStatus, setShowStatus] = useState(false);
-  const [expanded, setExpanded] = useState<number | null>(0);
+  const { success, error: toastError } = useToast();
 
-  const handleGenerate = () => {
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [loadingNotices, setLoadingNotices] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [summary, setSummary] = useState<WeeklySummaryResult | null>(null);
+  const [apiError, setApiError] = useState("");
+
+  useEffect(() => {
+    async function init() {
+      try {
+        setLoadingNotices(true);
+        const data = await getNotices();
+        setNotices(data);
+
+        // Load cached summary if available
+        const cached = localStorage.getItem(SAVED_SUMMARY_KEY);
+        if (cached) {
+          try {
+            setSummary(JSON.parse(cached));
+          } catch {
+            // ignore
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load notices:", err);
+      } finally {
+        setLoadingNotices(false);
+      }
+    }
+    init();
+  }, []);
+
+  const handleGenerateSummary = async () => {
     setGenerating(true);
-    setShowStatus(false);
-    setTimeout(() => {
+    setApiError("");
+
+    try {
+      const res = await fetch("/api/ai/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notices }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.isConfigError) {
+          setApiError(
+            "GEMINI_API_KEY is not set in .env.local. Add your Gemini API key to enable live generation."
+          );
+        } else {
+          setApiError(data.error || "Failed to generate AI weekly summary.");
+        }
+        return;
+      }
+
+      if (data.success && data.data) {
+        const istDate = getNowInIST().toLocaleDateString("en-IN", {
+          timeZone: "Asia/Kolkata",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+
+        const fullResult: WeeklySummaryResult = {
+          weekRange: `Current Week (${istDate})`,
+          generatedAt: new Date().toLocaleTimeString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          headline: data.data.headline || "Weekly Campus Intelligence",
+          overview: data.data.overview || "Overview of your upcoming campus activities.",
+          importantEvents: data.data.importantEvents || [],
+          examinations: data.data.examinations || [],
+          deadlines: data.data.deadlines || [],
+          workshopsAndCompetitions: data.data.workshopsAndCompetitions || [],
+          actionItems: data.data.actionItems || [],
+        };
+
+        setSummary(fullResult);
+        localStorage.setItem(SAVED_SUMMARY_KEY, JSON.stringify(fullResult));
+        success("Briefing Generated!", "Your personalized weekly summary is ready.");
+      }
+    } catch (err: any) {
+      setApiError(err.message || "Failed to connect to summary API.");
+      toastError("Generation Error", "Could not complete AI summarization.");
+    } finally {
       setGenerating(false);
-      setShowStatus(true);
-    }, 2000);
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+      {/* Top Header */}
+      <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-violet-50 flex items-center justify-center">
-            <Sparkles className="h-5 w-5 text-violet-600" />
+          <div className="h-9 w-9 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center">
+            <Sparkles className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-slate-900">AI Weekly Summary</h1>
-            <p className="text-xs text-slate-500">Powered by Google Gemini AI</p>
+            <h1 className="text-lg font-bold text-slate-900">AI Weekly Campus Briefing</h1>
+            <p className="text-xs text-slate-500">
+              Personalized synthesis powered by Google Gemini 2.5 Flash
+            </p>
           </div>
         </div>
+
         <button
-          onClick={handleGenerate}
-          disabled={generating}
-          className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-violet-500/20 hover:shadow-violet-500/30 transition-all disabled:opacity-70"
+          onClick={handleGenerateSummary}
+          disabled={generating || loadingNotices}
+          className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-violet-500/25 hover:scale-[1.02] transition-all disabled:opacity-60 cursor-pointer self-end sm:self-auto"
         >
           {generating ? (
             <>
-              <Activity className="h-4 w-4 animate-spin" />
-              Generating...
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Synthesizing Notices...
             </>
           ) : (
             <>
               <Zap className="h-4 w-4" />
-              Generate This Week
+              {summary ? "Regenerate Summary" : "Generate This Week's Summary"}
             </>
           )}
         </button>
       </div>
 
-      <div className="p-6 max-w-5xl space-y-6">
-        {/* Hero Card */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#1e1b4b] via-[#2d1b69] to-[#0f172a] rounded-2xl p-6 sm:p-8 shadow-2xl border border-violet-900/50">
-          <div className="absolute -top-16 -right-16 h-48 w-48 rounded-full bg-violet-500/10 blur-3xl" />
-          <div className="absolute -bottom-10 -left-10 h-32 w-32 rounded-full bg-blue-500/10 blur-2xl" />
-          <div className="relative">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
-                <Sparkles className="h-5 w-5 text-violet-400" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-violet-300 uppercase tracking-wider">
-                  AI Campus Briefing Engine
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  Gemini 2.5 Flash • Next.js Server Actions
-                </p>
-              </div>
+      <div className="p-6 max-w-5xl mx-auto space-y-6">
+        {/* Banner Card */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-[#1e1b4b] via-[#2d1b69] to-[#0f172a] rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-violet-900/40">
+          <div className="absolute top-0 right-0 h-full w-80 bg-gradient-to-l from-violet-500/20 to-transparent pointer-events-none" />
+
+          <div className="relative space-y-3">
+            <div className="inline-flex items-center gap-2 bg-violet-500/20 border border-violet-400/30 text-violet-200 text-xs font-semibold px-3 py-1 rounded-full">
+              <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+              What do I need to know this week?
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">Weekly Campus Intelligence</h2>
-            <p className="text-slate-400 text-sm leading-relaxed mb-6 max-w-xl">
-              Gemini AI reads all campus announcements, events, and deadline data to generate a
-              personalized weekly digest — surfacing what's most important for your department and
-              semester.
+
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Instant Academic Executive Briefing
+            </h2>
+
+            <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
+              Campus Pulse queries your live database notices, extracts impending exam dates, assignment cutoffs, and workshop schedules, and distills them into a single actionable briefing.
             </p>
 
-            {showStatus && (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-5 py-4 mb-5">
-                <div className="flex items-start gap-3">
-                  <Info className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-amber-300 font-semibold text-sm mb-1">
-                      Gemini API Key Required
-                    </p>
-                    <p className="text-amber-200/70 text-xs leading-relaxed">
-                      To activate real AI generation, add your Gemini API key in{" "}
-                      <span className="font-bold text-amber-300">Settings → AI Integration</span>.
-                      The AI engine is fully built and ready — it only needs the key to make live
-                      API calls.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3 pt-2">
               <button
-                onClick={handleGenerate}
+                onClick={handleGenerateSummary}
                 disabled={generating}
-                className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold px-5 py-2.5 rounded-xl shadow-lg hover:shadow-violet-500/20 transition-all disabled:opacity-70 text-sm"
+                className="flex items-center gap-2 bg-gradient-to-r from-violet-500 to-blue-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md hover:scale-[1.02] transition-all disabled:opacity-50 cursor-pointer"
               >
                 {generating ? (
                   <>
-                    <Activity className="h-4 w-4 animate-spin" />
-                    Generating Summary...
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Analyzing {notices.length} Notices...
                   </>
                 ) : (
                   <>
-                    <Play className="h-4 w-4" />
-                    Generate This Week's Briefing
+                    <Zap className="h-4 w-4" />
+                    Generate Briefing Now
                   </>
                 )}
               </button>
-              <a
-                href="/settings"
-                className="flex items-center gap-2 bg-white/10 border border-white/20 text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-white/20 transition-colors text-sm"
-              >
-                <Key className="h-4 w-4" />
-                Configure API Key
-              </a>
+
+              <span className="text-xs text-slate-400">
+                Connected to {notices.length} saved campus announcements
+              </span>
             </div>
           </div>
         </div>
 
-        {/* AI Capabilities */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {CAPABILITIES.map((cap) => {
-            const Icon = cap.icon;
-            return (
-              <div
-                key={cap.title}
-                className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-all"
-              >
-                <div
-                  className={`h-10 w-10 rounded-xl ${cap.color} flex items-center justify-center mb-3`}
+        {/* API Error Notification */}
+        {apiError && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-3">
+            <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-amber-900">Gemini API Setup Required</h4>
+              <p className="text-xs text-amber-800 leading-relaxed">{apiError}</p>
+              <div className="pt-2">
+                <Link
+                  href="/settings"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-violet-700 bg-violet-100 px-3 py-1.5 rounded-lg hover:bg-violet-200"
                 >
-                  <Icon className="h-5 w-5" />
+                  <Key className="h-3.5 w-3.5" /> Configure API Key in Settings
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Generated Summary View */}
+        {summary ? (
+          <div className="space-y-6 animate-slide-in">
+            {/* Header & Overview Card */}
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
+                <div>
+                  <span className="text-[10px] font-bold text-violet-700 uppercase tracking-wider bg-violet-50 border border-violet-200 px-2.5 py-0.5 rounded-full">
+                    {summary.weekRange}
+                  </span>
+                  <h3 className="text-xl font-bold text-slate-900 mt-2">{summary.headline}</h3>
                 </div>
-                <h3 className="text-sm font-bold text-slate-800 mb-1">{cap.title}</h3>
-                <p className="text-xs text-slate-500 leading-relaxed mb-3">{cap.description}</p>
-                <span
-                  className={`text-[10px] font-bold px-2 py-1 rounded-full ${cap.statusColor}`}
-                >
-                  ⚙️ Needs API Key
+                <span className="text-xs text-slate-400 flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" /> Generated at {summary.generatedAt}
                 </span>
               </div>
-            );
-          })}
-        </div>
 
-        {/* Past Summaries */}
-        <div>
-          <h2 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <RefreshCw className="h-4 w-4 text-violet-600" />
-            Previously Generated Summaries
-          </h2>
-          <div className="space-y-4">
-            {PAST_SUMMARIES.map((s, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
-              >
-                <button
-                  onClick={() => setExpanded(expanded === i ? null : i)}
-                  className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors"
-                >
-                  <div className="text-left">
-                    <p className="text-sm font-bold text-slate-900">Week of {s.week}</p>
-                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                      <Clock className="h-3 w-3" />
-                      Generated {s.generatedAt}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="hidden sm:flex items-center gap-3 text-xs text-slate-500">
-                      <span className="flex items-center gap-1">
-                        <Bell className="h-3.5 w-3.5" />
-                        {s.stats.notices} notices
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3.5 w-3.5" />
-                        {s.stats.events} events
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <CheckSquare className="h-3.5 w-3.5" />
-                        {s.stats.deadlines} deadlines
-                      </span>
-                    </div>
-                    <ChevronRight
-                      className={`h-5 w-5 text-slate-400 transition-transform ${
-                        expanded === i ? "rotate-90" : ""
-                      }`}
-                    />
-                  </div>
-                </button>
+              <p className="text-sm text-slate-700 leading-relaxed font-medium">
+                {summary.overview}
+              </p>
 
-                {expanded === i && (
-                  <div className="border-t border-slate-100 px-6 py-5 space-y-4">
-                    {s.urgentItem && (
-                      <div className="flex items-start gap-3 bg-rose-50 border border-rose-200 rounded-xl p-4">
-                        <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-bold text-rose-700 mb-0.5 uppercase tracking-wide">
-                            Urgent Highlight
-                          </p>
-                          <p className="text-sm text-rose-800">{s.urgentItem}</p>
+              {/* Action Items Box */}
+              {summary.actionItems && summary.actionItems.length > 0 && (
+                <div className="bg-gradient-to-br from-blue-50/60 to-violet-50/60 rounded-2xl p-5 border border-blue-100 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-blue-900 uppercase tracking-wide">
+                    <ListChecks className="h-4 w-4 text-blue-600" />
+                    Key Action Items For This Week
+                  </div>
+                  <ul className="space-y-2">
+                    {summary.actionItems.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2.5 text-xs text-slate-800">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <span className="leading-relaxed font-medium">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Structured Category Columns Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Examinations */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
+                <div className="flex items-center gap-2 text-rose-700 font-bold text-sm">
+                  <GraduationCap className="h-4 w-4" />
+                  Upcoming Examinations
+                </div>
+                {summary.examinations && summary.examinations.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {summary.examinations.map((exam, i) => (
+                      <div key={i} className="p-3 rounded-xl bg-rose-50/60 border border-rose-100 text-xs">
+                        <div className="flex items-center justify-between font-bold text-slate-900">
+                          <span>{exam.title}</span>
+                          <span className="text-rose-600">{exam.date}</span>
                         </div>
+                        {exam.details && <p className="text-slate-500 mt-1">{exam.details}</p>}
                       </div>
-                    )}
-                    <div>
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5 text-violet-500" />
-                        AI-Generated Key Highlights
-                      </p>
-                      <div className="space-y-2.5">
-                        {s.highlights.map((h, j) => (
-                          <div key={j} className="flex items-start gap-3">
-                            <div className="h-5 w-5 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shrink-0 mt-0.5">
-                              <span className="text-[9px] font-bold text-white">{j + 1}</span>
-                            </div>
-                            <p className="text-sm text-slate-700 leading-relaxed">{h}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    ))}
                   </div>
+                ) : (
+                  <p className="text-xs text-slate-400 py-3">No examinations scheduled this week.</p>
                 )}
               </div>
-            ))}
+
+              {/* Deadlines */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
+                <div className="flex items-center gap-2 text-amber-700 font-bold text-sm">
+                  <CalendarCheck className="h-4 w-4" />
+                  Critical Deadlines & Cutoffs
+                </div>
+                {summary.deadlines && summary.deadlines.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {summary.deadlines.map((item, i) => (
+                      <div
+                        key={i}
+                        className={`p-3 rounded-xl border text-xs ${
+                          item.urgent
+                            ? "bg-amber-50/80 border-amber-200"
+                            : "bg-slate-50 border-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-bold text-slate-900">
+                          <span>{item.title}</span>
+                          <span className={item.urgent ? "text-rose-600 font-black" : "text-slate-600"}>
+                            {item.deadline}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 py-3">No urgent assignment or fee deadlines.</p>
+                )}
+              </div>
+
+              {/* Workshops & Competitions */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
+                <div className="flex items-center gap-2 text-violet-700 font-bold text-sm">
+                  <Trophy className="h-4 w-4" />
+                  Workshops & Competitions
+                </div>
+                {summary.workshopsAndCompetitions && summary.workshopsAndCompetitions.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {summary.workshopsAndCompetitions.map((w, i) => (
+                      <div key={i} className="p-3 rounded-xl bg-violet-50/60 border border-violet-100 text-xs">
+                        <div className="flex items-center justify-between font-bold text-slate-900">
+                          <span>{w.title}</span>
+                          <span className="text-violet-700">{w.date}</span>
+                        </div>
+                        {w.venue && (
+                          <p className="text-slate-500 mt-1 flex items-center gap-1">
+                            <MapPin className="h-3 w-3" /> {w.venue}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 py-3">No workshops scheduled this week.</p>
+                )}
+              </div>
+
+              {/* General Important Events */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
+                <div className="flex items-center gap-2 text-blue-700 font-bold text-sm">
+                  <Calendar className="h-4 w-4" />
+                  General Campus Activities
+                </div>
+                {summary.importantEvents && summary.importantEvents.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {summary.importantEvents.map((evt, i) => (
+                      <div key={i} className="p-3 rounded-xl bg-blue-50/60 border border-blue-100 text-xs">
+                        <div className="flex items-center justify-between font-bold text-slate-900">
+                          <span>{evt.title}</span>
+                          <span className="text-blue-700">{evt.date}</span>
+                        </div>
+                        <div className="text-slate-500 mt-1 flex items-center gap-3">
+                          {evt.time && <span>Time: {evt.time}</span>}
+                          {evt.venue && <span>Venue: {evt.venue}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 py-3">No other events scheduled.</p>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          !generating && (
+            <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center space-y-4 shadow-sm">
+              <div className="h-14 w-14 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center mx-auto">
+                <Sparkles className="h-7 w-7" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">No Weekly Briefing Generated Yet</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                Click &quot;Generate This Week&apos;s Summary&quot; to synthesize all campus circulars, workshops, and deadlines into an executive briefing.
+              </p>
+              <button
+                onClick={handleGenerateSummary}
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md hover:scale-[1.02] transition-all cursor-pointer"
+              >
+                <Zap className="h-3.5 w-3.5" />
+                Generate Now
+              </button>
+            </div>
+          )
+        )}
       </div>
     </div>
   );

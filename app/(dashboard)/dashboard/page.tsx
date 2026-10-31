@@ -1,470 +1,422 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Bell,
   Calendar,
   CheckSquare,
   Sparkles,
-  TrendingUp,
   Clock,
   AlertTriangle,
   Plus,
   ArrowRight,
   BookOpen,
-  Users,
-  Activity,
-  Megaphone,
-  FlaskConical,
-  GraduationCap,
-  FileText,
   ChevronRight,
-  Eye,
+  Database,
+  HardDrive,
+  CalendarDays,
   Zap,
 } from "lucide-react";
-
-const TODAY = new Date().toLocaleDateString("en-US", {
-  weekday: "long",
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-});
-
-const STATS = [
-  {
-    label: "Total Notices",
-    value: "48",
-    change: "+3 today",
-    positive: true,
-    icon: Bell,
-    gradient: "from-blue-600 to-blue-700",
-    shadow: "shadow-blue-500/25",
-    bg: "bg-blue-50",
-    iconColor: "text-blue-600",
-  },
-  {
-    label: "Upcoming Events",
-    value: "12",
-    change: "Next in 2 days",
-    positive: true,
-    icon: Calendar,
-    gradient: "from-violet-600 to-violet-700",
-    shadow: "shadow-violet-500/25",
-    bg: "bg-violet-50",
-    iconColor: "text-violet-600",
-  },
-  {
-    label: "Urgent Deadlines",
-    value: "4",
-    change: "2 due tomorrow",
-    positive: false,
-    icon: AlertTriangle,
-    gradient: "from-rose-500 to-rose-600",
-    shadow: "shadow-rose-500/25",
-    bg: "bg-rose-50",
-    iconColor: "text-rose-500",
-  },
-  {
-    label: "Pending Reminders",
-    value: "9",
-    change: "3 completed today",
-    positive: true,
-    icon: CheckSquare,
-    gradient: "from-emerald-500 to-emerald-600",
-    shadow: "shadow-emerald-500/25",
-    bg: "bg-emerald-50",
-    iconColor: "text-emerald-600",
-  },
-];
-
-const RECENT_NOTICES = [
-  {
-    id: "1",
-    title: "Mid-Term Examination Datesheet — Spring 2026",
-    department: "Examination Cell",
-    time: "2 hours ago",
-    category: "examination",
-    priority: "urgent",
-    icon: GraduationCap,
-    iconBg: "bg-rose-100",
-    iconColor: "text-rose-600",
-  },
-  {
-    id: "2",
-    title: "Annual Hackathon 2026 — Registration Open",
-    department: "CS & IT Club",
-    time: "5 hours ago",
-    category: "event",
-    priority: "high",
-    icon: FlaskConical,
-    iconBg: "bg-blue-100",
-    iconColor: "text-blue-600",
-  },
-  {
-    id: "3",
-    title: "Cloud Architecture Workshop — AWS & GCP",
-    department: "Training & Placement Cell",
-    time: "1 day ago",
-    category: "workshop",
-    priority: "medium",
-    icon: Megaphone,
-    iconBg: "bg-violet-100",
-    iconColor: "text-violet-600",
-  },
-  {
-    id: "4",
-    title: "Library Extended Hours During Exam Week",
-    department: "Central Library",
-    time: "1 day ago",
-    category: "announcement",
-    priority: "low",
-    icon: BookOpen,
-    iconBg: "bg-emerald-100",
-    iconColor: "text-emerald-600",
-  },
-];
-
-const UPCOMING_EVENTS = [
-  { title: "Distributed Systems Midterm", date: "Nov 02", time: "09:00 AM", type: "exam", color: "bg-rose-500" },
-  { title: "AI Workshop: Prompt Engineering", date: "Nov 03", time: "02:00 PM", type: "workshop", color: "bg-violet-500" },
-  { title: "Sports Committee Meeting", date: "Nov 04", time: "04:00 PM", type: "meeting", color: "bg-blue-500" },
-  { title: "Fee Payment Last Date", date: "Nov 05", time: "11:59 PM", type: "deadline", color: "bg-amber-500" },
-];
-
-const URGENT_DEADLINES = [
-  { title: "Cloud Computing Lab Report 4", course: "CS501", due: "Tomorrow 11:59 PM", color: "border-l-rose-500" },
-  { title: "SE Capstone Milestone 1 — SRS Doc", course: "CS410", due: "Nov 03 11:59 PM", color: "border-l-orange-500" },
-  { title: "DBMS Assignment 5", course: "CS302", due: "Nov 04 5:00 PM", color: "border-l-amber-500" },
-];
-
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: "bg-rose-100 text-rose-700",
-  high: "bg-orange-100 text-orange-700",
-  medium: "bg-blue-100 text-blue-700",
-  low: "bg-slate-100 text-slate-600",
-};
+import { Notice } from "@/types";
+import { getNotices, isSupabaseConfigured } from "@/lib/services/notices";
+import {
+  getNowInIST,
+  formatFriendlyDate,
+  isTodayInIST,
+  computeEventStatus,
+} from "@/lib/utils/dates";
+import { useAuth } from "@/context/auth-context";
 
 export default function DashboardPage() {
-  const [summaryGenerating, setSummaryGenerating] = useState(false);
-  const [summaryMsg, setSummaryMsg] = useState("");
+  const { user } = useAuth();
+  const isSupa = isSupabaseConfigured();
 
-  const handleGenerateSummary = () => {
-    setSummaryGenerating(true);
-    setSummaryMsg("");
-    setTimeout(() => {
-      setSummaryGenerating(false);
-      setSummaryMsg("AI Summary feature requires Gemini API key. Configure it in Settings → AI Integration.");
-    }, 1200);
-  };
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Format today's date in IST
+  const todayFormatted = getNowInIST().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        setLoading(true);
+        const data = await getNotices();
+        setNotices(data);
+      } catch (err) {
+        console.error("Dashboard notices error:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchStats();
+  }, []);
+
+  // Compute stats dynamically from actual records
+  const totalNotices = notices.length;
+  const upcomingEvents = notices.filter(
+    (n) => n.event_date && computeEventStatus(n.event_date, n.event_time) === "upcoming"
+  );
+  const urgentItems = notices.filter((n) => n.priority === "urgent");
+  const todayEvents = notices.filter((n) => isTodayInIST(n.event_date));
+  const expiredNotices = notices.filter((n) => n.priority === "expired");
+  const recentNotices = notices.slice(0, 5);
 
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Top Header Bar */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
+          <h1 className="text-xl font-bold text-slate-900">Academic Overview</h1>
           <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" />
-            {TODAY}
+            <Clock className="h-3.5 w-3.5 text-blue-600" />
+            {todayFormatted} (IST)
           </p>
         </div>
+
         <div className="flex items-center gap-3">
           <Link
             href="/summary"
-            onClick={handleGenerateSummary}
-            className="hidden sm:flex items-center gap-2 border border-violet-300 text-violet-700 bg-violet-50 text-sm font-semibold px-4 py-2 rounded-xl hover:bg-violet-100 transition-all"
+            className="hidden sm:flex items-center gap-2 border border-violet-300 text-violet-700 bg-violet-50 text-xs font-bold px-4 py-2 rounded-xl hover:bg-violet-100 transition-all cursor-pointer"
           >
             <Sparkles className="h-4 w-4" />
-            Generate Weekly Summary
+            AI Weekly Summary
           </Link>
+
           <Link
             href="/notices/new"
-            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all"
+            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Quick Add Notice</span>
-            <span className="sm:hidden">Add</span>
+            <span>Add Notice</span>
           </Link>
         </div>
       </div>
 
-      <div className="p-6 space-y-6 max-w-[1400px]">
+      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
         {/* Welcome Banner */}
-        <div className="relative overflow-hidden bg-gradient-to-r from-[#0f172a] via-[#1e1b4b] to-[#1e293b] rounded-2xl p-6 sm:p-8 shadow-xl">
-          <div className="absolute top-0 right-0 h-full w-64 bg-gradient-to-l from-blue-600/10 to-transparent" />
-          <div className="absolute -bottom-8 -right-8 h-48 w-48 rounded-full bg-violet-500/10 blur-2xl" />
-          <div className="relative">
-            <div className="inline-flex items-center gap-2 bg-emerald-400/20 border border-emerald-400/30 text-emerald-300 text-xs font-semibold px-3 py-1 rounded-full mb-3">
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Campus System Online
+        <div className="relative overflow-hidden bg-gradient-to-r from-[#0f172a] via-[#1e1b4b] to-[#1e293b] rounded-3xl p-6 sm:p-8 shadow-xl text-white">
+          <div className="absolute top-0 right-0 h-full w-72 bg-gradient-to-l from-blue-600/15 to-transparent pointer-events-none" />
+          <div className="absolute -bottom-10 -right-10 h-48 w-48 rounded-full bg-violet-500/10 blur-2xl pointer-events-none" />
+
+          <div className="relative space-y-4">
+            <div className="inline-flex items-center gap-2 bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-semibold px-3 py-1 rounded-full">
+              {isSupa ? (
+                <>
+                  <Database className="h-3.5 w-3.5 text-emerald-400" />
+                  Supabase Cloud Connected
+                </>
+              ) : (
+                <>
+                  <HardDrive className="h-3.5 w-3.5 text-blue-400" />
+                  Local Development Storage Active
+                </>
+              )}
             </div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">
-              Good morning, <span className="text-blue-400">Alex! 👋</span>
-            </h2>
-            <p className="text-slate-400 text-sm mb-6 max-w-lg">
-              You have <span className="text-white font-semibold">4 urgent deadlines</span> approaching and{" "}
-              <span className="text-white font-semibold">3 new notices</span> published since yesterday. Stay on top of it.
-            </p>
-            <div className="flex flex-wrap gap-3">
+
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                Hello, <span className="text-blue-400">{user?.fullName || "Student"}!</span> 👋
+              </h2>
+              <p className="text-slate-300 text-sm mt-1 max-w-xl leading-relaxed">
+                You have <span className="font-bold text-white">{urgentItems.length} urgent items</span> requiring attention and{" "}
+                <span className="font-bold text-white">{upcomingEvents.length} events scheduled</span> in your calendar.
+              </p>
+            </div>
+
+            {/* Quick Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2.5 pt-2">
+              <Link
+                href="/notices/new"
+                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-violet-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md hover:scale-[1.02] transition-all"
+              >
+                <Plus className="h-4 w-4" />
+                Add Notice with AI
+              </Link>
               <Link
                 href="/notices"
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-4 py-2.5 rounded-xl border border-white/20 transition-colors"
               >
                 <Bell className="h-4 w-4" />
-                View All Notices
+                View All Notices ({totalNotices})
+              </Link>
+              <Link
+                href="/calendar"
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-4 py-2.5 rounded-xl border border-white/20 transition-colors"
+              >
+                <Calendar className="h-4 w-4" />
+                Open Calendar
               </Link>
               <Link
                 href="/reminders"
-                className="flex items-center gap-2 bg-white/10 border border-white/20 hover:bg-white/20 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-4 py-2.5 rounded-xl border border-white/20 transition-colors"
               >
                 <CheckSquare className="h-4 w-4" />
-                Check Deadlines
+                Deadlines & Reminders
               </Link>
             </div>
           </div>
         </div>
 
-        {/* Stats Grid */}
+        {/* Dynamic Real Statistics Cards Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {STATS.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <div
-                key={stat.label}
-                className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all card-hover"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className={`h-10 w-10 rounded-xl ${stat.bg} flex items-center justify-center`}>
-                    <Icon className={`h-5 w-5 ${stat.iconColor}`} />
-                  </div>
-                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${stat.positive ? "text-emerald-700 bg-emerald-50" : "text-rose-700 bg-rose-50"}`}>
-                    {stat.change}
-                  </span>
-                </div>
-                <div className="text-3xl font-extrabold text-slate-900 mb-1">{stat.value}</div>
-                <div className="text-xs font-medium text-slate-500">{stat.label}</div>
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Bell className="h-5 w-5" />
               </div>
-            );
-          })}
+              <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                All Time
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-slate-900 mb-1">
+              {loading ? "..." : totalNotices}
+            </div>
+            <div className="text-xs font-medium text-slate-500">Total Notices Saved</div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-10 w-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center">
+                <Calendar className="h-5 w-5" />
+              </div>
+              <span className="text-[10px] font-bold text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">
+                Scheduled
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-slate-900 mb-1">
+              {loading ? "..." : upcomingEvents.length}
+            </div>
+            <div className="text-xs font-medium text-slate-500">Upcoming Events</div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-10 w-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full">
+                &lt; 24h
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-rose-600 mb-1">
+              {loading ? "..." : urgentItems.length}
+            </div>
+            <div className="text-xs font-medium text-slate-500">Urgent Deadlines</div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <CalendarDays className="h-5 w-5" />
+              </div>
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                Today
+              </span>
+            </div>
+            <div className="text-3xl font-extrabold text-slate-900 mb-1">
+              {loading ? "..." : todayEvents.length}
+            </div>
+            <div className="text-xs font-medium text-slate-500">Events Today</div>
+          </div>
         </div>
 
-        {/* Main Content: 2-column layout */}
+        {/* 2-Column Main Section */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Recent Notices — wider */}
+          {/* Recent Notices (col-span-2) */}
           <div className="xl:col-span-2 space-y-4">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <Bell className="h-5 w-5 text-blue-600" />
-                  <h3 className="text-sm font-bold text-slate-900">Recent Notices</h3>
-                  <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">48</span>
+                  <Bell className="h-4 w-4 text-blue-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Recently Added Notices</h3>
+                  <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                    Live
+                  </span>
                 </div>
                 <Link
                   href="/notices"
-                  className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+                  className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
                 >
                   View All <ChevronRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
 
-              <div className="divide-y divide-slate-50">
-                {RECENT_NOTICES.map((notice) => {
-                  const Icon = notice.icon;
-                  return (
+              {loading ? (
+                <div className="p-6 space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              ) : recentNotices.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  No notices available. Click &quot;Add Notice&quot; to publish your first one.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {recentNotices.map((notice) => (
                     <Link
                       key={notice.id}
-                      href={`/notices`}
-                      className="flex items-start gap-4 px-6 py-4 hover:bg-slate-50/80 transition-colors group"
+                      href="/notices"
+                      className="flex items-start justify-between gap-4 p-5 hover:bg-slate-50 transition-colors group"
                     >
-                      <div className={`h-10 w-10 rounded-xl ${notice.iconBg} flex items-center justify-center shrink-0 mt-0.5`}>
-                        <Icon className={`h-5 w-5 ${notice.iconColor}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-600 transition-colors truncate">
-                            {notice.title}
-                          </p>
-                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shrink-0 ${PRIORITY_COLORS[notice.priority]}`}>
-                            {notice.priority}
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                            {notice.category}
                           </span>
+                          {notice.priority === "urgent" && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700">
+                              Urgent
+                            </span>
+                          )}
+                          {isTodayInIST(notice.event_date) && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                              Today
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                          <span>{notice.department}</span>
-                          <span>•</span>
-                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{notice.time}</span>
+
+                        <h4 className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate">
+                          {notice.title}
+                        </h4>
+
+                        <p className="text-xs text-slate-500 line-clamp-1">
+                          {notice.description}
+                        </p>
+
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400 pt-1">
+                          {notice.event_date && (
+                            <span className="flex items-center gap-1 text-slate-600 font-medium">
+                              <Calendar className="h-3 w-3 text-blue-500" />
+                              {formatFriendlyDate(notice.event_date)}
+                            </span>
+                          )}
+                          {notice.venue && (
+                            <span>• {notice.venue}</span>
+                          )}
                         </div>
                       </div>
-                      <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-blue-500 transition-colors shrink-0 mt-1" />
-                    </Link>
-                  );
-                })}
-              </div>
 
-              <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100">
-                <Link
-                  href="/notices/new"
-                  className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-semibold py-2.5 rounded-xl shadow-md hover:shadow-lg hover:shadow-blue-500/20 transition-all"
-                >
-                  <Plus className="h-4 w-4" />
-                  Publish New Notice
-                </Link>
-              </div>
+                      <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-blue-600 shrink-0 self-center transition-colors" />
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* AI Summary Card */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-[#1e1b4b] to-[#0f172a] rounded-2xl p-6 border border-violet-900/50 shadow-xl">
-              <div className="absolute top-0 right-0 h-40 w-40 bg-violet-500/10 rounded-full blur-2xl" />
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="h-8 w-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
-                    <Sparkles className="h-4 w-4 text-violet-400" />
-                  </div>
-                  <span className="text-xs font-bold text-violet-300 uppercase tracking-wider">AI Weekly Briefing</span>
+            {/* AI Summary Banner Promo */}
+            <div className="bg-gradient-to-br from-[#1e1b4b] to-[#0f172a] rounded-2xl p-6 text-white border border-violet-900/40 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-violet-400" />
+                  <span className="text-xs font-bold text-violet-300 uppercase tracking-wide">
+                    Gemini Intelligence
+                  </span>
                 </div>
-                <h3 className="text-lg font-bold text-white mb-2">Generate This Week's Summary</h3>
-                <p className="text-slate-400 text-sm mb-4 leading-relaxed">
-                  Let Gemini AI synthesize all campus announcements, events, and deadlines into a crisp, personalized weekly digest.
+                <h4 className="text-base font-bold">What do you need to know this week?</h4>
+                <p className="text-xs text-slate-400 max-w-md">
+                  Gemini analyzes all published notices to generate an executive briefing with examinations, assignment deadlines, and action items.
                 </p>
-                {summaryMsg && (
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 mb-4">
-                    <p className="text-amber-300 text-xs leading-relaxed">{summaryMsg}</p>
-                  </div>
-                )}
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleGenerateSummary}
-                    disabled={summaryGenerating}
-                    className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-lg hover:shadow-violet-500/20 transition-all disabled:opacity-70"
-                  >
-                    {summaryGenerating ? (
-                      <>
-                        <Activity className="h-4 w-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="h-4 w-4" />
-                        Generate Summary
-                      </>
-                    )}
-                  </button>
-                  <Link
-                    href="/summary"
-                    className="text-violet-400 hover:text-violet-300 text-sm font-medium transition-colors"
-                  >
-                    View past summaries →
-                  </Link>
-                </div>
               </div>
+
+              <Link
+                href="/summary"
+                className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg hover:scale-[1.02] transition-all shrink-0"
+              >
+                <Zap className="h-3.5 w-3.5" />
+                Generate Briefing
+              </Link>
             </div>
           </div>
 
-          {/* Right Column */}
+          {/* Right Column: Urgent Deadlines & Calendar Quickview */}
           <div className="space-y-4">
-            {/* Upcoming Events */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            {/* Urgent Items List */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5 text-violet-600" />
-                  <h3 className="text-sm font-bold text-slate-900">Upcoming Events</h3>
-                </div>
-                <Link href="/calendar" className="text-xs font-semibold text-violet-600 hover:text-violet-700 flex items-center gap-1">
-                  Calendar <ChevronRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-              <div className="p-4 space-y-3">
-                {UPCOMING_EVENTS.map((evt) => (
-                  <div key={evt.title} className="flex items-center gap-3 group">
-                    <div className={`h-10 w-10 rounded-xl ${evt.color} flex flex-col items-center justify-center shrink-0`}>
-                      <span className="text-white text-[10px] font-bold leading-none">{evt.date.split(" ")[0]}</span>
-                      <span className="text-white text-[10px] leading-none">{evt.date.split(" ")[1]}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
-                        {evt.title}
-                      </p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">{evt.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="px-4 pb-4">
-                <Link
-                  href="/calendar"
-                  className="flex items-center justify-center gap-1.5 w-full border border-slate-200 text-slate-700 text-xs font-semibold py-2.5 rounded-xl hover:bg-slate-50 transition-colors"
-                >
-                  View Full Calendar <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Urgent Deadlines */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-rose-500" />
+                  <AlertTriangle className="h-4 w-4 text-rose-600" />
                   <h3 className="text-sm font-bold text-slate-900">Urgent Deadlines</h3>
-                  <span className="h-5 w-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">3</span>
                 </div>
-                <Link href="/reminders" className="text-xs font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1">
-                  All <ChevronRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
-              <div className="p-4 space-y-3">
-                {URGENT_DEADLINES.map((d) => (
-                  <div key={d.title} className={`border-l-4 ${d.color} bg-slate-50 rounded-r-xl pl-3 pr-3 py-2.5`}>
-                    <p className="text-xs font-semibold text-slate-800 truncate">{d.title}</p>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
-                      <span className="font-medium text-blue-600">{d.course}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-0.5">
-                        <Clock className="h-3 w-3 text-rose-400" />
-                        {d.due}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="px-4 pb-4">
                 <Link
                   href="/reminders"
-                  className="flex items-center justify-center gap-1.5 w-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold py-2.5 rounded-xl hover:bg-rose-100 transition-colors"
+                  className="text-xs font-bold text-rose-600 hover:text-rose-700"
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Reminder
+                  Manage
                 </Link>
               </div>
+
+              {urgentItems.length === 0 ? (
+                <p className="text-xs text-slate-500 py-4 text-center">
+                  No urgent deadlines in the next 24 hours. Great job staying ahead! 🎉
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {urgentItems.slice(0, 4).map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-3 rounded-xl border border-rose-100 bg-rose-50/50 space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-rose-700 uppercase">
+                          {item.category}
+                        </span>
+                        <span className="text-[10px] font-bold text-rose-600">
+                          {item.registration_deadline
+                            ? formatFriendlyDate(item.registration_deadline)
+                            : formatFriendlyDate(item.event_date)}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-900 line-clamp-1">{item.title}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Quick Links */}
-            <div className="bg-gradient-to-br from-blue-600 to-violet-700 rounded-2xl p-5 shadow-xl shadow-blue-500/20">
-              <h3 className="text-sm font-bold text-white mb-3">Quick Navigation</h3>
-              <div className="space-y-2">
-                {[
-                  { href: "/notices/new", label: "Publish Notice", icon: Plus, desc: "Create & post" },
-                  { href: "/notices", label: "Browse Notices", icon: Eye, desc: "48 active" },
-                  { href: "/settings", label: "Settings", icon: Zap, desc: "Configure AI & profile" },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="flex items-center gap-3 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-2.5 transition-colors group"
-                    >
-                      <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
-                        <Icon className="h-4 w-4 text-white" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-white truncate">{item.label}</p>
-                        <p className="text-[10px] text-blue-200">{item.desc}</p>
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-white/40 group-hover:text-white transition-colors" />
-                    </Link>
-                  );
-                })}
-              </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Quick Shortcuts
+              </h3>
+              <Link
+                href="/calendar"
+                className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 border border-slate-100 text-xs font-semibold text-slate-700 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-blue-600" />
+                  Monthly Calendar View
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+              </Link>
+              <Link
+                href="/reminders"
+                className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 border border-slate-100 text-xs font-semibold text-slate-700 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <CheckSquare className="h-4 w-4 text-violet-600" />
+                  Task & Assignment Reminders
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+              </Link>
+              <Link
+                href="/settings"
+                className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 border border-slate-100 text-xs font-semibold text-slate-700 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-emerald-600" />
+                  Supabase & Gemini Settings
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+              </Link>
             </div>
           </div>
         </div>
